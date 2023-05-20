@@ -22,3 +22,15 @@ func IsNativeType(name string) bool {
 	}
 	return false
 }
+
+func GetIdentifierParts(qualifiedIdentifier string) (packageName string, identifier string) {
+	dotIdx := strings.Index(qualifiedIdentifier, ".")
+	if dotIdx >= 0 {
+		packageName = qualifiedIdentifier[0:dotIdx]
+		identifier = qualifiedIdentifier[(dotIdx + 1):]
+	} else {
+		packageName = ""
+		identifier = qualifiedIdentifier
+	}
+	return
+}

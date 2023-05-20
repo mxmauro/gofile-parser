@@ -37,18 +37,25 @@ type ParsedNonNativeType struct {
 	Ref  *ParsedDeclaration
 }
 
+type ParsedField struct {
+	Names        []string
+	ImplicitName string
+	Type         interface{}
+	Tags         ParsedTags
+}
+
 type ParsedStruct struct {
 	Fields []ParsedStructField
 }
 
-type ParsedStructField struct {
-	Names []string
-	Type  interface{}
-	Tags  ParsedTags
-}
+type ParsedStructField = ParsedField
 
 type ParsedInterface struct {
+	Methods    []ParsedInterfaceMethod
+	Incomplete bool
 }
+
+type ParsedInterfaceMethod = ParsedField
 
 type ParsedMap struct {
 	KeyType   interface{}
@@ -68,6 +75,16 @@ type ParsedChannel struct {
 	Dir  ast.ChanDir
 	Type interface{}
 }
+
+type ParsedFunction struct {
+	TypeParams []ParsedFunctionTypeParam
+	Params     []ParsedFunctionParam
+	Results    []ParsedFunctionResult
+}
+
+type ParsedFunctionTypeParam = ParsedField
+type ParsedFunctionParam = ParsedField
+type ParsedFunctionResult = ParsedField
 
 type ParsedImports struct {
 	Name string
@@ -207,6 +224,9 @@ func (pf *ParsedFile) convertType(expr ast.Expr) (interface{}, error) {
 
 	case *ast.ChanType:
 		return pf.parseChannel(node)
+
+	case *ast.FuncType:
+		return pf.parseFunction(node)
 	}
 
 	// Not supported
@@ -234,44 +254,27 @@ func (pf *ParsedFile) parseStruct(expr ast.Expr) (*ParsedStruct, error) {
 
 	ps := ParsedStruct{}
 
-	if st.Fields != nil && st.Fields.List != nil {
-		for _, field := range st.Fields.List {
-
-			psf := ParsedStructField{
-				Names: make([]string, 0),
-			}
-
-			for _, name := range field.Names {
-				psf.Names = append(psf.Names, name.Name)
-			}
-
-			if field.Tag != nil {
-				psf.Tags = scanTags(field.Tag.Value[1 : len(field.Tag.Value)-1]) // remove side `
-			}
-
-			psf.Type, err = pf.convertType(field.Type)
-			if err != nil {
-				return nil, err
-			}
-
-			if psf.Type != nil {
-				ps.Fields = append(ps.Fields, psf)
-			}
-		}
+	ps.Fields, err = pf.parseFields(st.Fields)
+	if err != nil {
+		return nil, err
 	}
 
 	// Done
 	return &ps, nil
 }
 
-func (pf *ParsedFile) parseInterface(_ ast.Expr) (*ParsedInterface, error) {
-	//var err error
+func (pf *ParsedFile) parseInterface(expr ast.Expr) (*ParsedInterface, error) {
+	var err error
 
-	//it := expr.(*ast.InterfaceType)
+	it := expr.(*ast.InterfaceType)
 
-	pi := ParsedInterface{}
-
-	// We are not interested in interface methods
+	pi := ParsedInterface{
+		Incomplete: it.Incomplete,
+	}
+	pi.Methods, err = pf.parseFields(it.Methods)
+	if err != nil {
+		return nil, err
+	}
 
 	// Done
 	return &pi, nil
@@ -292,6 +295,8 @@ func (pf *ParsedFile) parseMap(expr ast.Expr) (*ParsedMap, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Done
 	return &pm, nil
 }
 
@@ -311,17 +316,23 @@ func (pf *ParsedFile) parseArray(expr ast.Expr) (*ParsedArray, error) {
 	}
 	if a.Len == nil {
 		pa.Size = ""
+
+		// Done
 		return &pa, nil
 	}
 
 	if _, ok := a.Len.(*ast.Ellipsis); ok {
 		pa.Size = "..."
+
+		// Done
 		return &pa, nil
 	}
 
 	if lenSelExpr, ok := a.Len.(*ast.SelectorExpr); ok {
 		if xIdent, ok2 := lenSelExpr.X.(*ast.Ident); ok2 {
 			pa.Size = xIdent.Name + "." + lenSelExpr.Sel.Name
+
+			// Done
 			return &pa, nil
 		}
 	}
@@ -341,18 +352,22 @@ func (pf *ParsedFile) parseArray(expr ast.Expr) (*ParsedArray, error) {
 			}
 		*/
 		pa.Size = lenBasicLit.Value
+
+		// Done
 		return &pa, nil
 	}
 
 	if lenIdent, ok := a.Len.(*ast.Ident); ok {
 		pa.Size = lenIdent.Name
+
+		// Done
 		return &pa, nil
 	}
 
 	pa.Size = pf.fileContent[a.Len.Pos()-1 : a.Len.End()-1]
-	return &pa, nil
 
-	//return ParsedArray{}, errors.New("unsupported size")
+	// Done
+	return &pa, nil
 }
 
 func (pf *ParsedFile) parsePointer(expr ast.Expr) (*ParsedPointer, error) {
@@ -369,6 +384,8 @@ func (pf *ParsedFile) parsePointer(expr ast.Expr) (*ParsedPointer, error) {
 	if pp.ToType == nil {
 		return nil, errors.New("unsupported pointer to unknown")
 	}
+
+	// Done
 	return &pp, nil
 }
 
@@ -388,7 +405,71 @@ func (pf *ParsedFile) parseChannel(expr ast.Expr) (*ParsedChannel, error) {
 	if pc.Type == nil {
 		return nil, errors.New("unsupported channel type")
 	}
+
+	// Done
 	return &pc, nil
+}
+
+func (pf *ParsedFile) parseFunction(expr ast.Expr) (*ParsedFunction, error) {
+	var err error
+
+	ft := expr.(*ast.FuncType)
+
+	pfunc := ParsedFunction{}
+
+	pfunc.TypeParams, err = pf.parseFields(ft.TypeParams)
+	if err != nil {
+		return nil, err
+	}
+	pfunc.Params, err = pf.parseFields(ft.Params)
+	if err != nil {
+		return nil, err
+	}
+	pfunc.Results, err = pf.parseFields(ft.Results)
+	if err != nil {
+		return nil, err
+	}
+
+	// Done
+	return &pfunc, nil
+}
+
+func (pf *ParsedFile) parseFields(fields *ast.FieldList) ([]ParsedField, error) {
+	var err error
+
+	fieldsList := make([]ParsedField, 0)
+
+	if fields != nil && fields.List != nil {
+		for _, field := range fields.List {
+			pfld := ParsedField{
+				Names: make([]string, 0),
+			}
+
+			for _, name := range field.Names {
+				pfld.Names = append(pfld.Names, name.Name)
+			}
+
+			if field.Tag != nil {
+				pfld.Tags = scanTags(field.Tag.Value[1 : len(field.Tag.Value)-1]) // remove side `
+			}
+
+			pfld.Type, err = pf.convertType(field.Type)
+			if err != nil {
+				return nil, err
+			}
+
+			if pfld.Type != nil {
+				if len(pfld.Names) == 0 {
+					pfld.ImplicitName = guessImplicitName(pfld.Type)
+				}
+
+				fieldsList = append(fieldsList, pfld)
+			}
+		}
+	}
+
+	// Done
+	return fieldsList, err
 }
 
 func (pd *ParsedDeclaration) parseDirectives(commentGroup *ast.CommentGroup) {
@@ -398,4 +479,27 @@ func (pd *ParsedDeclaration) parseDirectives(commentGroup *ast.CommentGroup) {
 			pd.Tags[k] = v
 		}
 	}
+}
+
+// -----------------------------------------------------------------------------
+
+func guessImplicitName(t interface{}) string {
+	switch tType := t.(type) {
+	case *ParsedNativeType:
+		return tType.Name
+
+	case *ParsedNonNativeType:
+		_, name := GetIdentifierParts(tType.Name)
+		return name
+
+	case *ParsedArray:
+		return guessImplicitName(tType.ValueType)
+
+	case *ParsedPointer:
+		return guessImplicitName(tType.ToType)
+
+	case *ParsedChannel:
+		return guessImplicitName(tType.Type)
+	}
+	return ""
 }
