@@ -63,7 +63,8 @@ type ParsedMap struct {
 }
 
 type ParsedArray struct {
-	Size      interface{} // Can be empty string, ellipsis, a type
+	Size      string // Empty string means a slice, ellipsis is an array of items known at compile time, else a constant or a type
+	ParsedInt *int64
 	ValueType interface{}
 }
 
@@ -338,19 +339,21 @@ func (pf *ParsedFile) parseArray(expr ast.Expr) (*ParsedArray, error) {
 	}
 
 	if lenBasicLit, ok := a.Len.(*ast.BasicLit); ok {
-		/*
-			switch lenBasicLit.Kind {
-			case token.CHAR:
-				if strings.HasPrefix(lenBasicLit.Value, "'\\u") || strings.HasPrefix(lenBasicLit.Value, "'\\U") {
-					pa.Size = "0x" + lenBasicLit.Value[3:len(lenBasicLit.Value)-1]
-					return pa, nil
-				}
-
-			default:
-				pa.Size = lenBasicLit.Value
-				return pa, nil
+		switch lenBasicLit.Kind {
+		case token.INT:
+			if parsedInt, err2 := strconv.ParseInt(lenBasicLit.Value, 0, 64); err2 == nil {
+				pa.ParsedInt = &parsedInt
 			}
-		*/
+
+		case token.CHAR:
+			if n := len(lenBasicLit.Value); n >= 2 {
+				if code, _, _, err2 := strconv.UnquoteChar(lenBasicLit.Value[1:n-1], '\''); err2 == nil {
+					parsedInt := int64(code)
+					pa.ParsedInt = &parsedInt
+				}
+			}
+		}
+
 		pa.Size = lenBasicLit.Value
 
 		// Done

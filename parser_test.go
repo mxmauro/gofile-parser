@@ -32,6 +32,7 @@ type B struct {
 type C struct {
 	B B
 	K []byte
+	L [10]string
 }
 
 func main() {
@@ -68,5 +69,9 @@ func main() {
 
 	if pfs[0].Declarations[2].Type.(*parser.ParsedStruct).Fields[0].Type.(*parser.ParsedNonNativeType).Ref != &pfs[0].Declarations[1] {
 		t.Fatalf("wrong reference")
+	}
+
+	if pfs[0].Declarations[2].Type.(*parser.ParsedStruct).Fields[2].Type.(*parser.ParsedArray).ParsedInt == nil {
+		t.Fatalf("unable to indentify array size")
 	}
 }
