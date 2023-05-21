@@ -16,7 +16,7 @@ type ParsedFile struct {
 	Module       Module
 	Filename     string
 	Package      string
-	Imports      []ParsedImports
+	Imports      []ParsedImport
 	Declarations []ParsedDeclaration
 
 	fileContent string
@@ -87,9 +87,10 @@ type ParsedFunctionTypeParam = ParsedField
 type ParsedFunctionParam = ParsedField
 type ParsedFunctionResult = ParsedField
 
-type ParsedImports struct {
-	Name string
-	Path string
+type ParsedImport struct {
+	Name         string
+	ImplicitName string
+	Path         string
 }
 
 type ParseTextOptions struct {
@@ -127,7 +128,7 @@ func ParseText(opts ParseTextOptions) (*ParsedFile, error) {
 
 	// Parse imports
 	for _, imp := range fileAst.Imports {
-		pi := ParsedImports{}
+		pi := ParsedImport{}
 
 		pi.Path, err = strconv.Unquote(imp.Path.Value)
 		if err != nil {
@@ -139,9 +140,9 @@ func ParseText(opts ParseTextOptions) (*ParsedFile, error) {
 		} else {
 			idx := strings.LastIndex(pi.Path, "/")
 			if idx >= 0 {
-				pi.Name = pi.Path[idx+1:]
+				pi.ImplicitName = pi.Path[idx+1:]
 			} else {
-				pi.Name = pi.Path
+				pi.ImplicitName = pi.Path
 			}
 		}
 
@@ -482,6 +483,20 @@ func (pd *ParsedDeclaration) parseDirectives(commentGroup *ast.CommentGroup) {
 			pd.Tags[k] = v
 		}
 	}
+}
+
+func (pi *ParsedImport) PackageName() string {
+	if len(pi.Name) > 0 {
+		return pi.Name
+	}
+	return pi.ImplicitName
+}
+
+func (pf *ParsedField) Identifiers() []string {
+	if len(pf.ImplicitName) > 0 {
+		return []string{pf.ImplicitName}
+	}
+	return pf.Names
 }
 
 // -----------------------------------------------------------------------------

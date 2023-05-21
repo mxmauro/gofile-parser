@@ -43,8 +43,12 @@ func ResolveReferences(parsedFiles []*ParsedFile) {
 
 func (rr *refResolver) resolve(t interface{}) {
 	switch tType := t.(type) {
+	case *ParsedNonNativeType:
+		rr.resolveNonNativeType(tType)
 	case *ParsedStruct:
 		rr.processStruct(tType)
+	case *ParsedInterface:
+		rr.processInterface(tType)
 	case *ParsedArray:
 		rr.processArray(tType)
 	case *ParsedMap:
@@ -53,13 +57,19 @@ func (rr *refResolver) resolve(t interface{}) {
 		rr.processPointer(tType)
 	case *ParsedChannel:
 		rr.processChannel(tType)
-	case *ParsedNonNativeType:
-		rr.resolveNonNativeType(tType)
+	case *ParsedFunction:
+		rr.processFunction(tType)
 	}
 }
 
 func (rr *refResolver) processStruct(ps *ParsedStruct) {
 	for _, field := range ps.Fields {
+		rr.resolve(field.Type)
+	}
+}
+
+func (rr *refResolver) processInterface(pi *ParsedInterface) {
+	for _, field := range pi.Methods {
 		rr.resolve(field.Type)
 	}
 }
@@ -79,6 +89,18 @@ func (rr *refResolver) processPointer(pp *ParsedPointer) {
 
 func (rr *refResolver) processChannel(pc *ParsedChannel) {
 	rr.resolve(pc.Type)
+}
+
+func (rr *refResolver) processFunction(pf *ParsedFunction) {
+	for _, field := range pf.TypeParams {
+		rr.resolve(field.Type)
+	}
+	for _, field := range pf.Params {
+		rr.resolve(field.Type)
+	}
+	for _, field := range pf.Results {
+		rr.resolve(field.Type)
+	}
 }
 
 func (rr *refResolver) resolveNonNativeType(pnnt *ParsedNonNativeType) {
