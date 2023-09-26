@@ -77,6 +77,11 @@ type ParsedChannel struct {
 	Type interface{}
 }
 
+type ParsedIndex struct {
+	Type    interface{}
+	Indexes []interface{}
+}
+
 type ParsedFunction struct {
 	TypeParams []ParsedFunctionTypeParam
 	Params     []ParsedFunctionParam
@@ -216,6 +221,11 @@ func (pf *ParsedFile) convertType(expr ast.Expr) (interface{}, error) {
 
 	case *ast.StarExpr:
 		return pf.parsePointer(node)
+
+	case *ast.IndexExpr:
+		return pf.parseIndex(node)
+	case *ast.IndexListExpr:
+		return pf.parseIndexList(node)
 
 	case *ast.SelectorExpr:
 		if xIdent, ok2 := node.X.(*ast.Ident); ok2 {
@@ -391,6 +401,58 @@ func (pf *ParsedFile) parsePointer(expr ast.Expr) (*ParsedPointer, error) {
 
 	// Done
 	return &pp, nil
+}
+
+func (pf *ParsedFile) parseIndex(expr ast.Expr) (*ParsedIndex, error) {
+	var idx interface{}
+	var err error
+
+	ie := expr.(*ast.IndexExpr)
+
+	pi := ParsedIndex{
+		Indexes: make([]interface{}, 0),
+	}
+
+	pi.Type, err = pf.convertType(ie.X)
+	if err != nil {
+		return nil, err
+	}
+
+	idx, err = pf.convertType(ie.Index)
+	if err != nil {
+		return nil, err
+	}
+	pi.Indexes = append(pi.Indexes, idx)
+
+	// Done
+	return &pi, nil
+}
+
+func (pf *ParsedFile) parseIndexList(expr ast.Expr) (*ParsedIndex, error) {
+	var idx interface{}
+	var err error
+
+	ile := expr.(*ast.IndexListExpr)
+
+	pi := ParsedIndex{
+		Indexes: make([]interface{}, 0),
+	}
+
+	pi.Type, err = pf.convertType(ile.X)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, indice := range ile.Indices {
+		idx, err = pf.convertType(indice)
+		if err != nil {
+			return nil, err
+		}
+		pi.Indexes = append(pi.Indexes, idx)
+	}
+
+	// Done
+	return &pi, nil
 }
 
 func (pf *ParsedFile) parseChannel(expr ast.Expr) (*ParsedChannel, error) {
