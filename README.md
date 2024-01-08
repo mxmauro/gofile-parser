@@ -56,4 +56,4 @@ The same logic applies when, for example, you want to know the type of object a
 
 ## LICENSE
 
-[MIT](/LICENSE)
+See [LICENSE](/LICENSE) file for details.
